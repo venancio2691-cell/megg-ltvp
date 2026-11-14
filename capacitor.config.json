@@ -1,0 +1,7 @@
+{
+  "appId": "br.com.megg.ltvp",
+  "appName": "MEGG LTVP",
+  "webDir": "www",
+  "android": { "allowMixedContent": false },
+  "server": { "androidScheme": "https" }
+}

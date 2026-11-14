@@ -1,0 +1,72 @@
+name: Build web + APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p site && cp index.html site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+      - id: deploy
+        uses: actions/deploy-pages@v4
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Preparar projeto Capacitor
+        run: |
+          mkdir -p www && cp index.html www/index.html
+          npm install
+          npx cap add android
+          npx cap sync android
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />#' $M
+          grep -q CAMERA $M || sed -i 's#</manifest>#    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />\n</manifest>#' $M
+          # Nome e ícone padrão; permissão de localização no WebView
+          cat > android/app/src/main/java/br/com/megg/ltvp/MainActivity.java <<'JAVA'
+          package br.com.megg.ltvp;
+          import android.Manifest;
+          import android.os.Bundle;
+          import android.webkit.GeolocationPermissions;
+          import androidx.core.app.ActivityCompat;
+          import com.getcapacitor.BridgeActivity;
+          public class MainActivity extends BridgeActivity {
+            @Override public void onCreate(Bundle b){ super.onCreate(b);
+              ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.CAMERA}, 10);
+              this.bridge.getWebView().setWebChromeClient(new com.getcapacitor.BridgeWebChromeClient(this.bridge){
+                @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback cb){ cb.invoke(origin, true, false); }
+              });
+            }
+          }
+          JAVA
+      - name: Compilar APK (debug)
+        run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Renomear
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk MEGG_LTVP.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: MEGG_LTVP.apk, path: MEGG_LTVP.apk }
+      - name: Publicar release "latest"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: MEGG LTVP (última versão)
+          body: "APK gerado automaticamente a partir do index.html deste repositório. Instale permitindo 'fontes desconhecidas'."
+          files: MEGG_LTVP.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
