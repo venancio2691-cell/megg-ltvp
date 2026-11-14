@@ -56,10 +56,18 @@ jobs:
             }
           }
           JAVA
-      - name: Compilar APK (debug)
-        run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
-      - name: Renomear
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk MEGG_LTVP.apk
+      - name: Compilar APK (release, sem assinatura)
+        run: cd android && chmod +x gradlew && ./gradlew assembleRelease --no-daemon
+      - name: Assinar
+        env:
+          KS_B64: ${{ secrets.MEGG_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.MEGG_KEYSTORE_PASS }}
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          if [ -n "$KS_B64" ]; then echo "$KS_B64" | base64 -d > ks.jks; echo "Chave fixa da MEGG (secrets)"; else keytool -genkeypair -keystore ks.jks -alias megg -keyalg RSA -keysize 2048 -validity 10000 -storepass temp1234 -keypass temp1234 -dname "CN=MEGG LTVP temp"; KS_PASS=temp1234; echo "AVISO: sem secret MEGG_KEYSTORE_B64; chave temporária (cada build exige desinstalar o anterior)"; fi
+          $BT/zipalign -f -p 4 android/app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
+          $BT/apksigner sign --ks ks.jks --ks-key-alias megg --ks-pass pass:$KS_PASS --key-pass pass:$KS_PASS --out MEGG_LTVP.apk aligned.apk
+          $BT/apksigner verify MEGG_LTVP.apk && rm -f ks.jks
       - uses: actions/upload-artifact@v4
         with: { name: MEGG_LTVP.apk, path: MEGG_LTVP.apk }
       - name: Publicar release "latest"
